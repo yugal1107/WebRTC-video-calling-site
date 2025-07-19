@@ -9,7 +9,7 @@ const useSocket = () => {
 };
 
 const SocketProvider = ({ children }) => {
-  const socket = io("http://64.227.175.71:4000");
+  const socket = io("http://localhost:5000");
 
   return (
     <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>
