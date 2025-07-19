@@ -1,4 +1,6 @@
-import React, { useEffect, useRef } from "react";
+// File: ./frontend/src/Room.jsx
+
+import React, { useEffect, useRef, useState } from "react";
 import { useSocket } from "../providers/SocketProvider";
 import { useParams } from "react-router-dom";
 
@@ -6,118 +8,164 @@ const Room = () => {
   const socket = useSocket();
   const { roomId } = useParams();
 
-  const localVideo = useRef();
-  const remoteVideo = useRef();
-  const peerConnection = useRef();
+  // Refs for video elements and the peer connection
+  const localVideoRef = useRef();
+  const remoteVideoRef = useRef();
+  const peerConnectionRef = useRef();
 
+  // State to manage remote stream and connection status
+  const [remoteStream, setRemoteStream] = useState(null);
+  const [status, setStatus] = useState("Connecting...");
+
+  // WebRTC STUN server configuration
   const configuration = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   };
 
   useEffect(() => {
-    const init = async () => {
-      const stream = await getMediaStream();
-      setupPeerConnection(stream);
-      setupSocketListeners();
-      socket.emit("join-room", roomId);
+    // ---- WebRTC and Socket Event Handlers ----
+
+    // Handles the 'user-joined' event from another user
+    const handleUserJoined = async () => {
+      console.log("A new user has joined. Creating offer...");
+      setStatus("Connecting...");
+      await createOffer();
     };
 
-    const setupPeerConnection = (stream) => {
-      peerConnection.current = new RTCPeerConnection(configuration);
+    // Creates a WebRTC offer
+    const createOffer = async () => {
+      try {
+        const offer = await peerConnectionRef.current.createOffer();
+        await peerConnectionRef.current.setLocalDescription(offer);
+        socket.emit("offer", roomId, offer);
+      } catch (err) {
+        console.error("Failed to create offer:", err);
+      }
+    };
 
-      // Add tracks instead of the deprecated addStream()
+    // Handles an incoming offer from another peer
+    const handleOffer = async (offer) => {
+      try {
+        await peerConnectionRef.current.setRemoteDescription(offer);
+        const answer = await peerConnectionRef.current.createAnswer();
+        await peerConnectionRef.current.setLocalDescription(answer);
+        socket.emit("answer", roomId, answer);
+      } catch (err) {
+        console.error("Failed to handle offer:", err);
+      }
+    };
+
+    // Handles an incoming answer from another peer
+    const handleAnswer = async (answer) => {
+      try {
+        await peerConnectionRef.current.setRemoteDescription(answer);
+      } catch (err) {
+        console.error("Failed to handle answer:", err);
+      }
+    };
+
+    // Handles incoming ICE candidates
+    const handleIceCandidate = async (candidate) => {
+      try {
+        if (candidate) {
+          await peerConnectionRef.current.addIceCandidate(candidate);
+        }
+      } catch (err) {
+        console.error("Error adding ICE candidate:", err);
+      }
+    };
+
+    // ---- Initialization Logic ----
+
+    const init = async () => {
+      // 1. Get user's camera and microphone
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+      setStatus("Waiting for another user to join...");
+
+      // 2. Create RTCPeerConnection
+      peerConnectionRef.current = new RTCPeerConnection(configuration);
+
+      // 3. Add local tracks to the connection
       stream.getTracks().forEach((track) => {
-        peerConnection.current.addTrack(track, stream);
+        peerConnectionRef.current.addTrack(track, stream);
       });
 
-      // ICE Candidate handling
-      peerConnection.current.onicecandidate = (event) => {
+      // 4. Set up event listeners for the peer connection
+      peerConnectionRef.current.onicecandidate = (event) => {
         if (event.candidate) {
           socket.emit("ice-candidate", roomId, event.candidate);
         }
       };
 
-      // Remote stream handling
-      peerConnection.current.ontrack = (event) => {
-        remoteVideo.current.srcObject = event.streams[0];
+      peerConnectionRef.current.ontrack = (event) => {
+        setRemoteStream(event.streams[0]);
+        setStatus("Connected");
       };
-    };
 
-    const setupSocketListeners = () => {
+      // 5. Set up socket event listeners
+      socket.on("user-joined", handleUserJoined);
       socket.on("offer", handleOffer);
       socket.on("answer", handleAnswer);
       socket.on("ice-candidate", handleIceCandidate);
-    };
 
-    const handleOffer = async (offer) => {
-      try {
-        await peerConnection.current.setRemoteDescription(offer);
-        const answer = await peerConnection.current.createAnswer();
-        await peerConnection.current.setLocalDescription(answer);
-        socket.emit("answer", roomId, answer);
-      } catch (err) {
-        console.error("Offer handling failed:", err);
-      }
-    };
-
-    const handleAnswer = async (answer) => {
-      try {
-        await peerConnection.current.setRemoteDescription(answer);
-      } catch (err) {
-        console.error("Answer handling failed:", err);
-      }
-    };
-
-    const handleIceCandidate = async (candidate) => {
-      try {
-        await peerConnection.current.addIceCandidate(candidate);
-      } catch (err) {
-        console.error("ICE candidate error:", err);
-      }
-    };
-
-    const getMediaStream = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-        localVideo.current.srcObject = stream;
-        return stream;
-      } catch (err) {
-        console.error("Media access error:", err);
-      }
+      // 6. Join the room
+      socket.emit("join-room", roomId);
     };
 
     init();
 
+    // ---- Cleanup Logic ----
     return () => {
-      // Cleanup on unmount
-      if (peerConnection.current) {
-        peerConnection.current.close();
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
       }
-      socket.off("offer");
-      socket.off("answer");
-      socket.off("ice-candidate");
+      // Remove all socket listeners to prevent memory leaks. [16, 17, 18]
+      socket.off("user-joined", handleUserJoined);
+      socket.off("offer", handleOffer);
+      socket.off("answer", handleAnswer);
+      socket.off("ice-candidate", handleIceCandidate);
     };
-  }, [socket, roomId]);
-
-  const createOffer = async () => {
-    try {
-      const offer = await peerConnection.current.createOffer();
-      await peerConnection.current.setLocalDescription(offer);
-      socket.emit("offer", roomId, offer);
-    } catch (err) {
-      console.error("Offer creation failed:", err);
-    }
-  };
+  }, [roomId, socket]);
 
   return (
-    <div>
-      <h1>Room: {roomId}</h1>
-      <video ref={localVideo} autoPlay playsInline muted />
-      <video ref={remoteVideo} autoPlay playsInline />
-      <button onClick={createOffer}>Create Offer</button>
+    <div className="flex flex-col items-center p-4">
+      <h1 className="text-2xl font-bold mb-4">Room: {roomId}</h1>
+      <p className="mb-4">{status}</p>
+      <div className="flex justify-center gap-4 w-full">
+        {/* Local Video */}
+        <div className="bg-black rounded-lg overflow-hidden w-1/2">
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-auto"
+          />
+        </div>
+
+        {/* Remote Video */}
+        <div className="bg-black rounded-lg overflow-hidden w-1/2">
+          {remoteStream && (
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="w-full h-auto"
+              onLoadedData={() => {
+                if (remoteVideoRef.current) {
+                  remoteVideoRef.current.srcObject = remoteStream;
+                }
+              }}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 };
