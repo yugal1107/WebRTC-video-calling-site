@@ -113,11 +113,39 @@ const Room = () => {
   };
 
   return (
-    <div>
-      <h1>Room: {roomId}</h1>
-      <video ref={localVideo} autoPlay playsInline muted />
-      <video ref={remoteVideo} autoPlay playsInline />
-      <button onClick={createOffer}>Create Offer</button>
+    <div className="flex flex-col items-center min-h-screen bg-gray-100 p-6">
+      <h1 className="text-2xl font-semibold text-gray-800 mb-6">
+        Room: {roomId}
+      </h1>
+
+      <div className="flex flex-wrap justify-center gap-4 mb-6">
+        <div className="flex flex-col items-center">
+          <span className="mb-2 text-sm text-gray-600">You</span>
+          <video
+            ref={localVideo}
+            autoPlay
+            playsInline
+            muted
+            className="w-72 h-auto rounded-lg border-2 border-gray-300 bg-black"
+          />
+        </div>
+        <div className="flex flex-col items-center">
+          <span className="mb-2 text-sm text-gray-600">Remote</span>
+          <video
+            ref={remoteVideo}
+            autoPlay
+            playsInline
+            className="w-72 h-auto rounded-lg border-2 border-gray-300 bg-black"
+          />
+        </div>
+      </div>
+
+      <button
+        onClick={createOffer}
+        className="px-6 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-md transition duration-200"
+      >
+        Create Offer
+      </button>
     </div>
   );
 };

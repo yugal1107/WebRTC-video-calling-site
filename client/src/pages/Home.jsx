@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 
 const Home = () => {
   const [roomId, setRoomId] = useState("");
-  const [email, setEmail] = useState("");
   const navigate = useNavigate();
 
   const socket = useSocket();
@@ -26,13 +25,6 @@ const Home = () => {
             placeholder="Room ID"
             value={roomId}
             onChange={(e) => setRoomId(e.target.value)}
-            className="p-2 border rounded"
-          />
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
             className="p-2 border rounded"
           />
           <button type="submit" className="p-2 bg-blue-500 text-white rounded">
